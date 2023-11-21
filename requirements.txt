@@ -1,0 +1,6 @@
+youtube-dl
+numpy
+matplotlib
+opencv-python
+pytesseract
+scipy
