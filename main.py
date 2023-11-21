@@ -91,32 +91,6 @@ def locateGameBeginFrame(cap: cv.VideoCapture, startAtFrame: int) -> int:
     goToFrame(cap, frameNum)
     return frameNum
 
-cam_matrix = np.array([
-    [0, 0, 960], # fX, 0, cX
-    [0, 0, 540], # 0, fY, cY
-    [0, 0, 1]  # 0, 0, 1
-], dtype="float32")
-
-dist_coeffs = np.array([0, 0, 0, 0], dtype="float32") # k1, k2, k3, k4
-
-def setFX(val):
-    cam_matrix[0][0] = val
-def setCX(val):
-    cam_matrix[0][2] = val
-def setFY(val):
-    cam_matrix[1][1] = val
-def setCY(val):
-    cam_matrix[1][2] = val
-
-def setK1(val):
-    dist_coeffs[0] = val / 1000
-def setK2(val):
-    dist_coeffs[1] = val / 1000
-def setK3(val):
-    dist_coeffs[2] = val / 1000
-def setK4(val):
-    dist_coeffs[3] = val / 1000
-
 def main():
     cap = cv.VideoCapture("./test_data/qual44.mp4")
     fps = round(cap.get(cv.CAP_PROP_FPS))
@@ -127,17 +101,6 @@ def main():
     
     cv.namedWindow("Frame")
     cv.namedWindow("mask")
-    cv.namedWindow("undistort")
-
-    cv.createTrackbar("fX", "undistort", 0, 1000, setFX)
-    cv.createTrackbar("fY", "undistort", 0, 1000, setFY)
-    cv.createTrackbar("cX", "undistort", 0, 1000, setCX)
-    cv.createTrackbar("cY", "undistort", 0, 1000, setCY)
-
-    cv.createTrackbar("k1", "undistort", 0, 2000, setK1)
-    cv.createTrackbar("k2", "undistort", 0, 2000, setK2)
-    cv.createTrackbar("k3", "undistort", 0, 2000, setK3)
-    cv.createTrackbar("k4", "undistort", 0, 2000, setK4)
 
     cv.setMouseCallback("Frame", getMouseCoords)
     team_nums = []
@@ -154,10 +117,8 @@ def main():
                 team_nums = text_get.getTeams(frame)
             # cv.imshow("mask", mask)
             frame = scipy.ndimage.rotate(frame, -10, reshape=False)
-            undistort = cv.fisheye.undistortImage(frame, cam_matrix, dist_coeffs)
             cv.putText(frame, f"{mouseX}, {mouseY}", (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv.LINE_AA)
             # cv.imshow("Frame", frame)
-            cv.imshow("undistort", undistort)
 
             # i love stack overflow https://stackoverflow.com/questions/75336140/generating-bird-eye-view-of-image-in-opencvpython-without-knowing-exact-positi
             width = 1262
