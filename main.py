@@ -19,7 +19,7 @@ Step 7:   repeat 4-6 for each robot, for entire match
 Step 8:   fancy stuff with info
 """
 
-"""
+""" me slowly trying to make corner points
 (432, 437)  -- > (1292, 326)
 |
 |
@@ -32,6 +32,34 @@ FIELD_CORNERS = np.array([
     (1350, 370), # TR
     (1660, 640), # BR
     (170, 590), # BL
+    
+], dtype = "float32")
+
+# 623 by 315 in, that lil gap between the community and where opponents can go is about 30in idk their diagrams didn't help
+FIELD_CORNERS2 = np.array([ # CCW
+    (460, 350), # TL
+    (585, 342), # TLM, 0.15
+    (610, 340), # TLM, 0.2
+    (805, 342), # TLM, 0.4
+    (885, 345), # TM
+    (960, 347), # TRM, 0.4
+    (1155, 363), # TRM, 0.2
+    (1210, 371), # TRM, 0.15
+    (1325, 390), # TR
+
+    (1425, 475), # MR
+
+    (1615, 630), # BR
+    (1430, 630), # BRM, 0.15
+    (1350, 630), # BRM, 0.2
+    (1000, 620), # BRM, 0.4
+    (855, 615), # BM
+    (725, 605), # BLM, 0.4
+    (410, 590), # BLM, 0.2
+    (345, 585), # BLM, 0.15
+    (197, 562), # BL
+
+    (355, 435), # ML
     
 ], dtype = "float32")
 
@@ -54,7 +82,8 @@ NUM_SEC_TO_SKIP = 3 # should be set to a decent guess for where the game begins
 
 def goToFrame(cap: cv.VideoCapture, frame: int):
     cap.set(cv.CAP_PROP_POS_FRAMES, frame)
-
+def incrementTime(cap: cv.VideoCapture, timeIncMS: int):
+    cap.set(cv.CAP_PROP_POS_MSEC, cap.get(cv.CAP_PROP_POS_MSEC) + timeIncMS)
 
 POLLS_PER_SECOND = 4 # how many times per second is video queried
 
@@ -71,6 +100,7 @@ def locateGameBeginFrame(cap: cv.VideoCapture, startAtFrame: int) -> int:
     @param startAtFrame is where the algo should start searching
     @return (hopefully) pretty close to the 1st frame of the match. The cap will also be set to this frame (future me hopefully won't regret this design decision)
     """
+    goToFrame(cap, startAtFrame)
     frameNum = startAtFrame
     # target = 14, if the val at current frame is 15 we skip forward by 1000ms, if val at current frame is < 14 we can shortcut a bit based on the val at current frame
     currentTime = text_get.getTime(getFrame(cap))
@@ -94,43 +124,52 @@ def locateGameBeginFrame(cap: cv.VideoCapture, startAtFrame: int) -> int:
 def main():
     cap = cv.VideoCapture("./test_data/qual44.mp4")
     fps = round(cap.get(cv.CAP_PROP_FPS))
-    goToFrame(cap, fps * NUM_SEC_TO_SKIP)
+    # goToFrame(cap, fps * NUM_SEC_TO_SKIP)
     if not cap.isOpened():
         print("Err reading file")
         return
     
     cv.namedWindow("Frame")
-    cv.namedWindow("mask")
 
     cv.setMouseCallback("Frame", getMouseCoords)
     team_nums = []
 
-    currTime = locateGameBeginFrame(cap, fps * NUM_SEC_TO_SKIP) * fps
+    locateGameBeginFrame(cap, fps * NUM_SEC_TO_SKIP)
+
     while cap.isOpened():
         ret, frame = cap.read()
         if ret:
-            hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-            mask = cv.inRange(hsv, BLUE_MASK_LOWER, BLUE_MASK_UPPER)
+            #hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+            #mask = cv.inRange(hsv, BLUE_MASK_LOWER, BLUE_MASK_UPPER)
 
             # birdseye = four_point_transform(frame, FIELD_CORNERS)
             if len(team_nums) < 6: # we only need team numbers once, and we might not even need it once we hook into TBA's API
                 team_nums = text_get.getTeams(frame)
             # cv.imshow("mask", mask)
-            frame = scipy.ndimage.rotate(frame, -10, reshape=False)
+            # frame = scipy.ndimage.rotate(frame, -10, reshape=False)
             cv.putText(frame, f"{mouseX}, {mouseY}", (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv.LINE_AA)
-            # cv.imshow("Frame", frame)
+            for p in FIELD_CORNERS2:
+                cv.circle(frame, (int(p[0]), int(p[1])), 5, (0, 255, 0), -1)
+            cv.imshow("Frame", frame)
 
             # i love stack overflow https://stackoverflow.com/questions/75336140/generating-bird-eye-view-of-image-in-opencvpython-without-knowing-exact-positi
-            width = 1262
-            height = 366
-            inputpts = FIELD_CORNERS
-            outputpts = np.float32([[0,0], [width-1, 0], [width-1, height-1], [0, height-1]])
-            m = cv.getPerspectiveTransform(inputpts, outputpts)
-            birdseye = cv.warpPerspective(frame, m, (width, height), cv.INTER_LINEAR)
+            width = 1420#1262
+            height = 710#366
+            inputpts = FIELD_CORNERS2
+            outputpts = np.float32([ # CCW i didn't know how to format this so deal with it.
+                [0, 1], [width * 0.15, 1], [width * 0.2, 1], [width * 0.4, 1], [width / 2, 1], [width * 0.6, 1], [width * 0.8, 1], [width * 0.85, 1], [width - 1, 1],
+                [width - 1, height / 2],
+                [width - 1, height - 1], [width * 0.85, height - 1], [width * 0.8, height - 1], [width * 0.6, height - 1], [width / 2, height - 1], [width * 0.4, height - 1], [width * 0.2, height - 1], [width * 0.15, height - 1], [0, height - 1],
+                [0, height / 2],
+            ])
+            H, ret = cv.findHomography(inputpts, outputpts, cv.LMEDS)
+            # m = cv.getPerspectiveTransform(inputpts, outputpts)
+            birdseye = cv.warpPerspective(frame, H, (width, height), cv.INTER_LINEAR)
             cv.imshow("birdseye", birdseye)
             # print("time:", text_get.getTime(frame))
 
-            if cv.waitKey(25) & 0xFF == ord('q'):
+            incrementTime(cap, round(1000 / POLLS_PER_SECOND))
+            if cv.waitKey(2500) & 0xFF == ord('q'):
                 # cv.imwrite("out.png", frame)
                 break
         else:
