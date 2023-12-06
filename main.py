@@ -19,49 +19,7 @@ Step 7:   repeat 4-6 for each robot, for entire match
 Step 8:   fancy stuff with info
 """
 
-""" me slowly trying to make corner points
-(432, 437)  -- > (1292, 326)
-|
-|
-v
-(254, 691)  -- > (1544, 514)
-"""
-
-FIELD_CORNERS = np.array([
-    (450, 330), # TL
-    (1350, 370), # TR
-    (1660, 640), # BR
-    (170, 590), # BL
-    
-], dtype = "float32")
-
 # 623 by 315 in, that lil gap between the community and where opponents can go is about 30in idk their diagrams didn't help
-FIELD_CORNERS2 = np.array([ # CCW
-    (460, 350), # TL
-    (585, 342), # TLM, 0.15
-    (610, 340), # TLM, 0.2
-    (805, 342), # TLM, 0.4
-    (885, 345), # TM
-    (960, 347), # TRM, 0.4
-    (1155, 363), # TRM, 0.2
-    (1210, 371), # TRM, 0.15
-    (1325, 390), # TR
-
-    (1425, 475), # MR
-
-    (1615, 630), # BR
-    (1430, 630), # BRM, 0.15
-    (1350, 630), # BRM, 0.2
-    (1000, 620), # BRM, 0.4
-    (855, 615), # BM
-    (725, 605), # BLM, 0.4
-    (410, 590), # BLM, 0.2
-    (345, 585), # BLM, 0.15
-    (197, 562), # BL
-
-    (355, 435), # ML
-    
-], dtype = "float32")
 
 TESTING = True
 
@@ -121,6 +79,23 @@ def locateGameBeginFrame(cap: cv.VideoCapture, startAtFrame: int) -> int:
     goToFrame(cap, frameNum)
     return frameNum
 
+# avg of imgpts and imgpts2 from undistort.py (thanks opencv for not letting me pass in all my things at once bc of type issues, i'll rewrite it in c++ later maybe to fix this)
+CAM_MTX = np.array([
+    [1369.77285343, 0, 717.73048076],
+    [0, 1570.08686795, 891.422184525],
+    [0, 0, 1]
+])
+
+ROI = (293, 423, 1625, 552)
+
+MTX = np.array([
+    [1.616951135e+3, 0, 5.008496825e+02],
+    [0, 2.9399128e+03, 9.199752105e+02],
+    [0, 0, 1]
+])
+DIST = np.array([[-1.358850905, 0.494547765, -0.111502065, 0.242596845, -0.1642758]])
+
+mapx, mapy = cv.initUndistortRectifyMap(MTX, DIST, None, CAM_MTX, (1920,1080), 5)
 def main():
     cap = cv.VideoCapture("./test_data/qual44.mp4")
     fps = round(cap.get(cv.CAP_PROP_FPS))
@@ -139,32 +114,34 @@ def main():
     while cap.isOpened():
         ret, frame = cap.read()
         if ret:
+            # we need to do text reading *before* frame unwarps
+            if len(team_nums) < 6: # we only need team numbers once, and we might not even need it once we hook into TBA's API
+                team_nums = text_get.getTeams(frame)
+
+
+            # frame = cv.remap(frame, mapx, mapy, cv.INTER_LINEAR)
+            # crop the image
+            x, y, w, h = ROI
+            # frame = frame[y:y+h, x:x+w]
             #hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
             #mask = cv.inRange(hsv, BLUE_MASK_LOWER, BLUE_MASK_UPPER)
 
             # birdseye = four_point_transform(frame, FIELD_CORNERS)
-            if len(team_nums) < 6: # we only need team numbers once, and we might not even need it once we hook into TBA's API
-                team_nums = text_get.getTeams(frame)
             # cv.imshow("mask", mask)
             # frame = scipy.ndimage.rotate(frame, -10, reshape=False)
             cv.putText(frame, f"{mouseX}, {mouseY}", (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3, cv.LINE_AA)
-            for p in FIELD_CORNERS2:
-                cv.circle(frame, (int(p[0]), int(p[1])), 5, (0, 255, 0), -1)
-            cv.imshow("Frame", frame)
 
             # i love stack overflow https://stackoverflow.com/questions/75336140/generating-bird-eye-view-of-image-in-opencvpython-without-knowing-exact-positi
             width = 1420#1262
             height = 710#366
-            inputpts = FIELD_CORNERS2
-            outputpts = np.float32([ # CCW i didn't know how to format this so deal with it.
-                [0, 1], [width * 0.15, 1], [width * 0.2, 1], [width * 0.4, 1], [width / 2, 1], [width * 0.6, 1], [width * 0.8, 1], [width * 0.85, 1], [width - 1, 1],
-                [width - 1, height / 2],
-                [width - 1, height - 1], [width * 0.85, height - 1], [width * 0.8, height - 1], [width * 0.6, height - 1], [width / 2, height - 1], [width * 0.4, height - 1], [width * 0.2, height - 1], [width * 0.15, height - 1], [0, height - 1],
-                [0, height / 2],
-            ])
-            H, ret = cv.findHomography(inputpts, outputpts, cv.LMEDS)
-            # m = cv.getPerspectiveTransform(inputpts, outputpts)
-            birdseye = cv.warpPerspective(frame, H, (width, height), cv.INTER_LINEAR)
+            inputpts = np.float32([[646, 631], [1339, 605], [1731, 733], [395, 769]])
+            outputpts = np.float32([[0,0], [width-1, 0], [width-1, height-1], [0, height-1]])
+
+            for p in inputpts:
+                cv.circle(frame, (int(p[0]), int(p[1])), 5, (0, 255, 0), -1)
+            cv.imshow("Frame", frame)
+            m = cv.getPerspectiveTransform(inputpts, outputpts)
+            birdseye = cv.warpPerspective(frame, m, (width, height), cv.INTER_LINEAR)
             cv.imshow("birdseye", birdseye)
             # print("time:", text_get.getTime(frame))
 

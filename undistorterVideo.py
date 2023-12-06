@@ -14,6 +14,18 @@ def handleMouseCoords(event, x, y, flags, param):
     if event == cv.EVENT_LBUTTONDOWN:
         pts.append((x, y))
 
+def savePts(pts):
+    print(pts)
+    out = ""
+    for img in pts:
+        for pt in img:
+            out += str(pt[0]) + " " + str(pt[1]) + "\n"
+        out += "\n"
+    
+    f = open("pts.txt", "a")
+    f.write(out)
+    f.close()
+
 def main():
     global allPts, pts
     cap = cv.VideoCapture("test_data/qual44.mp4")
@@ -32,11 +44,10 @@ def main():
         ret, frame = cap.read()
         if ret:
             for p in pts:
-                cv.circle(frame, (int(p[0]), int(p[1]), 0), 5, (0, 255, 0), -1)
+                cv.circle(frame, (int(p[0]), int(p[1])), 5, (0, 255, 0), -1)
             cv.imshow("Frame", frame)
             
             if cv.waitKey(25) & 0xFF == ord('q'):
-                print(allPts)
                 break
             if len(pts) != 9:
                 util.goToFrame(cap, cap.get(cv.CAP_PROP_POS_FRAMES) - 1)
@@ -47,6 +58,7 @@ def main():
                 allPts.append(pts)
                 pts = []
                 util.incrementTime(cap, 2000)
+    savePts(allPts)
 
 if __name__ == "__main__":
     main()

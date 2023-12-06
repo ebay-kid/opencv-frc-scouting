@@ -78,8 +78,8 @@ imgpts2 = np.array(imgpts2, dtype=np.float32)[np.newaxis]
 # f.close()
 #print(ihatethis)
 
-objp = np.zeros((3*3,3), np.float32)
-objp[:,:2] = np.mgrid[0:3,0:3].T.reshape(-1,2)
+objp = np.zeros((1,3*3,3), np.float32)
+objp[0,:,:2] = np.mgrid[0:3,0:3].T.reshape(-1,2)
 
 objpts = []
 for i in range(1):
@@ -87,10 +87,14 @@ for i in range(1):
 
 img = cv.imread("./markedFieldPts/frame0.png")
 gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(objpts, imgpts, (1080, 1920), None, None)
+
+rvecs = [np.zeros((1, 1, 3), dtype=np.float64) for i in range(len(objpts))]
+tvecs = [np.zeros((1, 1, 3), dtype=np.float64) for i in range(len(objpts))]
+ret, mtx, dist, rvecs, tvecs = cv.fisheye.calibrate(objpts, imgpts2, (1080, 1920), None, None)
 
 h,  w = img.shape[:2]
-newcameramtx, roi = cv.getOptimalNewCameraMatrix(mtx, dist, (w,h), 1, (w,h))
+newcameramtx = cv.fisheye.estimateNewCameraMatrixForUndistortRectify(mtx, dist, (w,h), np.eye(3, 3))
+"""
 newcameramtx = np.array([
     [1369.77285343, 0, 717.73048076],
     [0, 1570.08686795, 891.422184525],
@@ -98,16 +102,26 @@ newcameramtx = np.array([
 ])
 roi = (293, 423, 1625, 552)
 # undistort
-mapx, mapy = cv.initUndistortRectifyMap(mtx, dist, None, newcameramtx, (w,h), 5)
+
+MTX = np.array([
+    [1.616951135e+3, 0, 5.008496825e+02],
+    [0, 2.9399128e+03, 9.199752105e+02],
+    [0, 0, 1]
+])
+DIST = np.array([[-1.358850905, 0.494547765, -0.111502065, 0.242596845, -0.1642758]])"""
+
+mapx, mapy = cv.fisheye.initUndistortRectifyMap(mtx, dist, None, newcameramtx, (w,h), 5)
+print(w, h)
 dst = cv.remap(img, mapx, mapy, cv.INTER_LINEAR)
 # crop the image
-x, y, w, h = roi
-dst = dst[y:y+h, x:x+w]
+#x, y, w, h = roi
+#dst = dst[y:y+h, x:x+w]
 
-print(newcameramtx.shape)
+# print(newcameramtx.shape)
 print(newcameramtx[0])
 print(newcameramtx[1])
 print(newcameramtx[2])
-print(dist.shape)
-print(roi)
+# print(roi)
+print(dist)
+# print(mtx)
 cv.imwrite('calibresult.png', dst)
