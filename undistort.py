@@ -1,5 +1,6 @@
 import numpy as np
 import cv2 as cv
+import math
 
 """
 [[[ 858  449]
@@ -62,16 +63,30 @@ import cv2 as cv
   [ 332  543]
   [1438  390]]]
 """
+def rotate(origin, point, angle):
+    """
+    Rotate a point counterclockwise by a given angle around a given origin.
 
+    The angle should be given in radians.
+    """
+    ox, oy = origin
+    px, py = point
+
+    qx = ox + math.cos(angle) * (px - ox) - math.sin(angle) * (py - oy)
+    qy = oy + math.sin(angle) * (px - ox) + math.cos(angle) * (py - oy)
+    return qx, qy + 241
 
 imgpts = np.array([
-    [(430, 438), (853, 358), (1306, 323), (340, 537), (858, 449), (1433, 390), (212, 706), (887, 622), (1616, 513)]
+    [(510, 492), (940, 468), (1392, 494), (394, 576), (933, 560), (1521, 575), (254, 726), (937, 737), (1673, 722)]
 ])
 imgpts = np.array(imgpts, dtype = np.float32)[np.newaxis]
 
 imgpts2 = np.array([
     [(431, 438), (853, 360), (1306, 323), (344, 533), (858, 449), (1432, 389), (213, 705), (884, 624), (1613, 510)]
 ])
+#for i in range(len(imgpts2[0])):
+#    new = rotate((1920, 1080), imgpts2[0][i], math.radians(7.5))
+#    imgpts2[0][i] = (new[0], new[1])
 imgpts2 = np.array(imgpts2, dtype=np.float32)[np.newaxis]
 # f = open("out.txt", "a")
 # f.write(str(imgpts))
@@ -80,17 +95,18 @@ imgpts2 = np.array(imgpts2, dtype=np.float32)[np.newaxis]
 
 objp = np.zeros((1,3*3,3), np.float32)
 objp[0,:,:2] = np.mgrid[0:3,0:3].T.reshape(-1,2)
+print(objp)
 
 objpts = []
 for i in range(1):
     objpts.append(objp)
 
-img = cv.imread("./markedFieldPts/frame0.png")
+img = cv.imread("./rotatedMarkedFieldPts/frame0.png")
 gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
 rvecs = [np.zeros((1, 1, 3), dtype=np.float64) for i in range(len(objpts))]
 tvecs = [np.zeros((1, 1, 3), dtype=np.float64) for i in range(len(objpts))]
-ret, mtx, dist, rvecs, tvecs = cv.fisheye.calibrate(objpts, imgpts2, (1080, 1920), None, None)
+ret, mtx, dist, rvecs, tvecs = cv.fisheye.calibrate(objpts, imgpts, (1080, 1920), None, None, flags=cv.fisheye.CALIB_RECOMPUTE_EXTRINSIC+cv.fisheye.CALIB_FIX_INTRINSIC)
 
 h,  w = img.shape[:2]
 newcameramtx = cv.fisheye.estimateNewCameraMatrixForUndistortRectify(mtx, dist, (w,h), np.eye(3, 3))

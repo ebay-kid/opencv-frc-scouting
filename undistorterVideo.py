@@ -1,7 +1,10 @@
 import cv2 as cv
 import numpy as np
+import scipy.ndimage
 
 import main as util # lmao
+
+OUTPUT_FOLDER = "rotatedMarkedFieldPts"
 
 mouseX = 0
 mouseY = 0
@@ -43,6 +46,7 @@ def main():
     while cap.isOpened():
         ret, frame = cap.read()
         if ret:
+            # frame = scipy.ndimage.rotate(frame, -7.5, reshape=True) # experimentally found
             for p in pts:
                 cv.circle(frame, (int(p[0]), int(p[1])), 5, (0, 255, 0), -1)
             cv.imshow("Frame", frame)
@@ -53,7 +57,7 @@ def main():
                 util.goToFrame(cap, cap.get(cv.CAP_PROP_POS_FRAMES) - 1)
             else:
                 cv.circle(frame, (int(pts[-1][0]), int(pts[-1][1])), 5, (0, 255, 0), -1)
-                cv.imwrite(f"markedFieldPts/frame{count}.png", frame)
+                cv.imwrite(f"{OUTPUT_FOLDER}/frame{count}.png", frame)
                 count += 1
                 allPts.append(pts)
                 pts = []

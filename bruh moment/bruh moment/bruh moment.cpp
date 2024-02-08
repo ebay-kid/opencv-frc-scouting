@@ -3,11 +3,11 @@
 #include <iostream>
 #include <fstream>
 #include <opencv2/core.hpp>
-#include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/highgui.hpp>
+#include <cmath>
 
-constexpr bool FISHEYE_MODE = false; // fisheye calibration doesn't even work idk whats happening
+constexpr bool FISHEYE_MODE = true; // fisheye calibration doesn't even work idk whats happening
 
 // image width, height
 constexpr int WIDTH_IMG = 1920;
@@ -18,22 +18,95 @@ constexpr int WIDTH_NUM_CORNERS = 3;
 constexpr int HEIGHT_NUM_CORNERS = 3;
 constexpr int TOTAL_PTS = WIDTH_NUM_CORNERS * HEIGHT_NUM_CORNERS;
 
-const cv::Size IMAGE_SIZE = cv::Size(WIDTH_IMG, HEIGHT_IMG);
+const cv::Size2i IMAGE_SIZE(WIDTH_IMG, HEIGHT_IMG);
+
+double distFromOrigin(const double x, const double y) {
+    return sqrt(x * x + y * y);
+}
 
 void setupObjectPoints(std::vector<cv::Point3f>& objectPtsVec) {
     for (int i = 0; i < HEIGHT_NUM_CORNERS; i++) {
         for (int j = 0; j < WIDTH_NUM_CORNERS; j++) {
-            objectPtsVec.push_back(cv::Point3f(i, j, 0)); // ??? idk this was easier in python
+            objectPtsVec.emplace_back(i, j, 0); // ??? idk this was easier in python
         }
     }
     std::cout << "objptsvec:\n" << objectPtsVec << "\n";
 }
 
-bool comparePointXValues(cv::Point2f a, cv::Point2f b) {
+/*
+ * https://wiki.panotools.org/Fisheye_Projection
+ */
+enum ThetaCalcMethod {
+    LINEAR,        // R = f * theta
+    STEREOGRAPHIC, // R = 2f * tan(theta / 2)
+    ORTHOGRAPHIC,  // R = f * sin(theta)
+    EQUISOLID,     // R = 2f * sin(theta / 2)
+    THOBY          // R = 1.47f * sin(0.713 * theta)
+};
+
+cv::Point2i fisheyeToRectilinearCoordinate(const cv::Size2i srcSize, const cv::Size2i destSize, const int sourceX, const int sourceY, const double cropFactor, const double zoom, const ThetaCalcMethod method) {
+    const double rx = sourceX - (srcSize.width / 2.0);
+    const double ry = sourceY - (srcSize.height / 2.0);
+    const double r = distFromOrigin(rx, ry);
+
+    const double f = distFromOrigin(srcSize.width, srcSize.height) * cropFactor / CV_PI;
+
+    double theta = 0;
+    switch (method) {
+        case LINEAR:
+            theta = r / f;
+            break;
+        case STEREOGRAPHIC:
+            theta = 2 * std::atan(r / 2 * f);
+            break;
+        case ORTHOGRAPHIC:
+            theta = std::asin(r / f);
+            break;
+        case EQUISOLID:
+            theta = 2 * std::asin(r / (2 * f));
+            break;
+        case THOBY:
+            theta = std::asin(r / (1.47 * f)) / 0.713;
+            break;
+    }
+    
+    const double newRadius = std::tan(theta) * zoom;
+    if (std::abs(r * newRadius) < 1) {
+        return { srcSize.width / 2, srcSize.height / 2 };
+    }
+
+    const int dx = static_cast<int>(destSize.width / 2.0 + rx / r * newRadius);
+    const int dy = static_cast<int>(destSize.height / 2.0 + ry / r * newRadius);
+
+    // std::cout << "moved x=" << sourceX << " to " << dx << ", y=" << sourceY << " to " << dy << "\n";
+    return { dx, dy };
+}
+
+cv::Point2i fisheyeToRectilinearCoordinate(const cv::Size2i srcSize, const cv::Size2i destSize, const cv::Point2i sourcePoint, const double cropFactor, const double zoom, const ThetaCalcMethod method) {
+    return fisheyeToRectilinearCoordinate(srcSize, destSize, sourcePoint.x, sourcePoint.y, cropFactor, zoom, method);
+}
+
+cv::Mat remapImage(cv::Mat img, double cropFactor, double zoom, const ThetaCalcMethod method) {
+    // std::cout << "remapping w factor: " << cropFactor << "\n";
+    cv::Mat ret(img.rows, img.cols, img.type(), cv::Scalar(0, 0, 0));
+    const cv::Size imgSize(img.rows, img.cols);
+    for (int i = 0; i < img.rows; i++) {
+        for (int j = 0; j < img.cols; j++) {
+            const cv::Point2i newPoint = fisheyeToRectilinearCoordinate(imgSize, imgSize, i, j, cropFactor, zoom, method);
+            // std::cout << (newPoint.x - i) << " " << (newPoint.y - j) << "\n";
+            if (newPoint.x >= 0 && newPoint.x < imgSize.width && newPoint.y >= 0 && newPoint.y < imgSize.height) {
+                ret.at<cv::Vec3b>(newPoint.x, newPoint.y) = img.at<cv::Vec3b>(i, j);
+            }
+        }
+    }
+    return ret;
+}
+
+bool comparePointXValues(const cv::Point a, const cv::Point b) {
     return a.x < b.x;
 }
 
-bool comparePointYValues(cv::Point2f a, cv::Point2f b) {
+bool comparePointYValues(const cv::Point a, const cv::Point b) {
     return a.y < b.y;
 }
 
@@ -63,10 +136,10 @@ int main() {
     std::vector<cv::Point2f> temp;
     while (std::getline(allPoints, buf)) {
         std::cout << "reading " << buf << "\n";
-        int delimLoc = buf.find(" ");
+        auto delimLoc = buf.find(' ');
         std::string pt1 = buf.substr(0, delimLoc);
         std::string pt2 = buf.substr(delimLoc + 1);
-        temp.push_back(cv::Point2f(std::stoi(pt1), std::stoi(pt2))); // split the string into x and y points
+        temp.emplace_back(std::stoi(pt1), std::stoi(pt2)); // split the string into x and y points
         ptsHandled++;
         if (ptsHandled == TOTAL_PTS) {
             ptsHandled = 0;
@@ -90,22 +163,22 @@ int main() {
     std::cout << imagePts.size();
     objectPts.resize(imagePts.size(), objectPts[0]); // copy the element as many times as needed
 
-    cv::Mat distCoeffs = cv::Mat::zeros(4, 1, CV_64F);
-    cv::Mat cameraMtx, newCamMat;
-    cv::Mat rvecs, tvecs;
-    cv::fisheye::calibrate(objectPts, imagePts, IMAGE_SIZE, cameraMtx, distCoeffs, rvecs, tvecs, cv::fisheye::CALIB_CHECK_COND);
-    cv::fisheye::estimateNewCameraMatrixForUndistortRectify(cameraMtx, distCoeffs, IMAGE_SIZE, cv::Matx33d::eye(), newCamMat, 1);
 
-    cv::Mat map1, map2;
-    cv::fisheye::initUndistortRectifyMap(cameraMtx, distCoeffs, cv::Matx33d::eye(), newCamMat, IMAGE_SIZE, CV_16SC2, map1, map2);
-
-    std::cout << "cammat:\n" << cameraMtx << "\ndistCoeffs:\n" << distCoeffs << "\nnewCamMat:\n" << newCamMat;
-    // since we now have the stuff test the undistortion to make sure it did something
-
-    // never mind visual studio no like
     cv::Mat img = cv::imread("C:/Users/Addis/Documents/00_YNWA/code/python/opencv-frc-scouting/bruh moment/x64/Debug/frame0.png"), undistorted;
-    cv::remap(img, undistorted, map1, map2, cv::INTER_LINEAR);
-    cv::imwrite("C:/Users/Addis/Documents/00_YNWA/code/python/opencv-frc-scouting/bruh moment/x64/Debug/undistorted.png", undistorted);
+    cv::namedWindow("window");
+    int factor = 1000;
+    int method = 1;
+    int zoom = 1000;
+    cv::createTrackbar("factor", "window", &factor, 2999, nullptr);
+    cv::createTrackbar("method", "window", &method, 4, nullptr);
+    cv::createTrackbar("zoom", "window", &zoom, 10999, nullptr);
+    cv::Mat remapped;
+    while (cv::waitKey(5) != 'q') {
+        remapped = remapImage(img, (factor + 1) / 1000.0, (zoom + 1) / 10.0, static_cast<ThetaCalcMethod>(method));
+        cv::imshow("window", remapped);
+    }
+    // cv::remap(img, undistorted, map1, map2, cv::INTER_LINEAR);
+    // cv::imwrite("C:/Users/Addis/Documents/00_YNWA/code/python/opencv-frc-scouting/bruh moment/x64/Debug/undistorted.png", undistorted);
 
     return 0;
 }
