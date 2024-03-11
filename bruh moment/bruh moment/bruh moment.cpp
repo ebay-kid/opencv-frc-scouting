@@ -5,6 +5,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #include <cmath>
 
 constexpr bool FISHEYE_MODE = true; // fisheye calibration doesn't even work idk whats happening
@@ -95,7 +96,11 @@ cv::Mat remapImage(cv::Mat img, double cropFactor, double zoom, const ThetaCalcM
             const cv::Point2i newPoint = fisheyeToRectilinearCoordinate(imgSize, imgSize, i, j, cropFactor, zoom, method);
             // std::cout << (newPoint.x - i) << " " << (newPoint.y - j) << "\n";
             if (newPoint.x >= 0 && newPoint.x < imgSize.width && newPoint.y >= 0 && newPoint.y < imgSize.height) {
-                ret.at<cv::Vec3b>(newPoint.x, newPoint.y) = img.at<cv::Vec3b>(i, j);
+                const cv::Vec3b pixel = img.at<cv::Vec3b>(i, j);
+            	ret.at<cv::Vec3b>(newPoint.x, newPoint.y) = pixel;
+                if(pixel[0] == 255 && pixel[1] == 255 && pixel[2] == 0) {
+                    std::cout << "found target pixel at (" << i << ", " << j << "), moved to: (" << newPoint.x << ", " << newPoint.y << ")\n";
+                }
             }
         }
     }
@@ -108,6 +113,14 @@ bool comparePointXValues(const cv::Point a, const cv::Point b) {
 
 bool comparePointYValues(const cv::Point a, const cv::Point b) {
     return a.y < b.y;
+}
+
+double autoZoom(const cv::Size srcSize, const cv::Size destSize, const double cropFactor, const ThetaCalcMethod method) {
+    const cv::Point2i point = fisheyeToRectilinearCoordinate(srcSize, destSize, { 0, srcSize.height / 2 }, cropFactor, 1, method);
+
+    const double obtained = destSize.width / 2.0 - point.x;
+    const double required = destSize.width / 2.0;
+    return required / obtained;
 }
 
 int main() {
@@ -132,8 +145,8 @@ int main() {
      * 10 10
      */
 
-    std::vector<std::vector<cv::Point2f>> imagePts;
-    std::vector<cv::Point2f> temp;
+    std::vector<std::vector<cv::Point2i>> imagePts;
+    std::vector<cv::Point2i> temp;
     while (std::getline(allPoints, buf)) {
         std::cout << "reading " << buf << "\n";
         auto delimLoc = buf.find(' ');
@@ -165,17 +178,34 @@ int main() {
 
 
     cv::Mat img = cv::imread("C:/Users/Addis/Documents/00_YNWA/code/python/opencv-frc-scouting/bruh moment/x64/Debug/frame0.png"), undistorted;
+
+    for (int i = 0; i < imagePts[0].size(); i++) {
+        cv::circle(img, imagePts[0][i], 5, cv::Scalar(255 - i * 25, i * 25, i * 25), 10);
+    }
+
+    // cv::circle(img, { 960, 540 }, 3, cv::Scalar(255, 255, 0), 3);
+    const cv::Size imgSize(img.rows, img.cols);
+
     cv::namedWindow("window");
     int factor = 1000;
-    int method = 1;
-    int zoom = 1000;
+    int method = 0;
+    int zoom = static_cast<int>(autoZoom(imgSize, imgSize, factor, static_cast<ThetaCalcMethod>(method)) * 10);
     cv::createTrackbar("factor", "window", &factor, 2999, nullptr);
     cv::createTrackbar("method", "window", &method, 4, nullptr);
     cv::createTrackbar("zoom", "window", &zoom, 10999, nullptr);
     cv::Mat remapped;
+
     while (cv::waitKey(5) != 'q') {
-        remapped = remapImage(img, (factor + 1) / 1000.0, (zoom + 1) / 10.0, static_cast<ThetaCalcMethod>(method));
+        double cropFactor = (factor + 1) / 1000.0;
+        double scaledZoom = (zoom + 1) / 10.0;
+        remapped = remapImage(img, cropFactor, scaledZoom, static_cast<ThetaCalcMethod>(method));
+        for (cv::Point2i point : imagePts[0]) {
+            cv::Point2i center = fisheyeToRectilinearCoordinate(imgSize, imgSize, point.y, point.x, cropFactor, scaledZoom, static_cast<ThetaCalcMethod>(method));
+            center = { center.y, center.x };
+			cv::circle(remapped, center, 5, cv::Scalar(255, 255, 0), 10);
+        }
         cv::imshow("window", remapped);
+        // cv::imshow("og", img);
     }
     // cv::remap(img, undistorted, map1, map2, cv::INTER_LINEAR);
     // cv::imwrite("C:/Users/Addis/Documents/00_YNWA/code/python/opencv-frc-scouting/bruh moment/x64/Debug/undistorted.png", undistorted);
